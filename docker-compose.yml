@@ -1,0 +1,232 @@
+version: '3.8'
+services:
+  db-produto-consumer:
+    image: postgres:15
+    container_name: api-produto-consumer-banco-dados
+    environment:
+      POSTGRES_USER: user.api_produto
+      POSTGRES_PASSWORD: pass.api_produto
+      POSTGRES_DB: db_produto
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data_consumer:/var/lib/postgresql/data
+    networks:
+      - produto-network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5' 
+          memory: 256M
+
+  db-produto-query:
+    image: mongo
+    restart: always
+    container_name: api-produto-query-banco-dados
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: user.api_produto
+      MONGO_INITDB_ROOT_PASSWORD: pass.api_produto
+    command: mongod --bind_ip_all
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - produto-network
+
+  db-produto-producer:
+    image: postgres:15
+    container_name: api-produto-producer-banco-dados
+    environment:
+      POSTGRES_USER: user.api_produto
+      POSTGRES_PASSWORD: pass.api_produto
+      POSTGRES_DB: db_produto_out_box
+    ports:
+      - "5433:5432"
+    volumes:
+      - pg_data_producer:/var/lib/postgresql/data
+    networks:
+      - produto-network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5' 
+          memory: 256M
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: broker-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: user.api_produto
+      RABBITMQ_DEFAULT_PASS: pass.api_produto
+    ports:
+      - "5672:5672"   
+      - "15672:15672" 
+    networks:
+      - produto-network
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5' 
+          memory: 256M
+
+
+  api-produto-query: 
+    restart: always
+    depends_on:
+      - rabbitmq
+      - db-produto-query
+      # - logstash
+    networks:
+      - produto-network
+    build:
+      context: ./api-produto-query
+      dockerfile: Dockerfile
+    image: api-produto-query:0.0.1
+    ports:
+      - "8083:8083"
+    environment:
+      - SPRING_PROFILES_ACTIVE=prod
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 256M
+
+  api-produto-producer: 
+    restart: always
+    depends_on:
+      - rabbitmq
+      - db-produto-producer
+      # - logstash
+    networks:
+      - produto-network
+    build:
+      context: ./api-produto-producer
+      dockerfile: Dockerfile
+    image: api-produto-producer:0.0.1
+    ports:
+      - "8081:8081"
+    environment:
+      - SPRING_PROFILES_ACTIVE=prod
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 256M
+
+  api-produto-consumer: 
+    restart: always
+    depends_on:
+      - rabbitmq
+      - db-produto-consumer
+      # - logstash
+    networks:
+      - produto-network
+    build:
+      context: ./api-produto-consumer
+      dockerfile: Dockerfile
+    image: api-produto-consumer:0.0.1
+    ports:
+      - "8082:8082"
+    environment:
+      - SPRING_PROFILES_ACTIVE=prod
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 256M
+  
+  api-gateway: 
+    restart: always
+    # depends_on:
+    #   - logstash
+    networks:
+      - produto-network
+    build:
+      context: ./api-gateway
+      dockerfile: Dockerfile
+    image: api-gateway:0.0.1
+    ports:
+      - "8080:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=prod
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 256M
+
+  # prometheus:
+  #   image: prom/prometheus:latest
+  #   container_name: prometheus
+  #   depends_on:
+  #     - kibana
+  #   ports:
+  #     - "9090:9090"
+  #   volumes:
+  #     - ./prometheus.yml:/etc/prometheus/prometheus.yml
+  #   networks:
+  #     - produto-network
+
+  # logstash:
+  #   image: docker.elastic.co/logstash/logstash:8.5.0
+  #   ports:
+  #     - "5044:5044"
+  #   volumes:
+  #     - ./config/logstash.conf:/usr/share/logstash/pipeline/logstash.conf
+  #   networks:
+  #     - produto-network
+  #   depends_on:
+  #     - elasticsearch
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         cpus: '0.5'
+  #         memory: 512M
+
+  # elasticsearch:
+  #   image: docker.elastic.co/elasticsearch/elasticsearch:8.5.0
+  #   container_name: elasticsearch
+  #   environment:
+  #     - discovery.type=single-node
+  #     - xpack.security.enabled=false
+  #     - xpack.security.http.ssl.enabled=false
+  #   ports:
+  #     - "9200:9200"
+  #     - "9300:9300"
+  #   networks:
+  #     - produto-network
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         cpus: '1.0'
+  #         memory: 1G
+
+  # kibana:
+  #   image: docker.elastic.co/kibana/kibana:8.5.0
+  #   container_name: kibana
+  #   environment:
+  #     - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+  #   ports:
+  #     - "5601:5601"
+  #   networks:
+  #     - produto-network
+  #   depends_on:
+  #     - logstash
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         cpus: '0.5'
+  #         memory: 512M
+
+volumes:
+  pg_data_consumer:
+  pg_data_producer:
+  rabbitmq_data:
+  mongo_data:
+
+networks:
+  produto-network:
